@@ -14,12 +14,17 @@ export class NFTTokenOwnersTaskService {
     private readonly nftTokenOwnersTaskModel: Model<NFTTokenOwnersTaskDocument>,
   ) {}
 
-  public async findUnprocessed(amount: number) {
+  public async findUnprocessed(amount: number, tokenType: string) {
+    const query: any = {}
+    
+    query['isProcessing'] =  { $in: [null, false] };
+    if (tokenType !== 'both') {
+        query['tokenType'] = tokenType; 
+    }
+    
     return await this.nftTokenOwnersTaskModel
       .find(
-        {
-          isProcessing: { $in: [null, false] },
-        },
+        query,
         {},
         { sort: { priority: -1, createdAt: -1 } },
       )

@@ -21,5 +21,6 @@ export default () => ({
     block_interval: process.env.BLOCKS_INTERVAL,
     message_num: process.env.MESSAGES_PER_PROCESS,
     end_block: process.env.END_BLOCK,
+    token_type: process.env.TOKEN_TYPE,
   },
 });

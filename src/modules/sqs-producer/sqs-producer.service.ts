@@ -13,6 +13,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   public sqsProducer: Producer;
   private readonly logger = new Logger(SqsProducerService.name);
   private readonly messageNum: number;
+  private readonly tokenType: string;
 
   constructor(
     private configService: ConfigService,
@@ -25,6 +26,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       secretAccessKey: this.configService.get('aws.secretAccessKey') || '',
     });
     this.messageNum = this.configService.get('queue_config.message_num');
+    this.tokenType = this.configService.get('queue_config.token_type');
   }
 
   public onModuleInit() {
@@ -42,7 +44,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   @Cron(CronExpression.EVERY_5_SECONDS)
   public async checkTokenOwnersTask() {
     const unprocessedTasks =
-      await this.nftTokenOwnersTaskService.findUnprocessed(this.messageNum);
+      await this.nftTokenOwnersTaskService.findUnprocessed(this.messageNum, this.tokenType);
 
     if (!unprocessedTasks || unprocessedTasks.length === 0) {
       return;
