@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EthereumService } from '../ethereum/ethereum.service';
 import { NFTTokenOwnersTaskService } from '../nft-token-owners-task/nft-token-owners-task.service';
+import { Utils } from '../../common/utils';
 
 @Injectable()
 export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
@@ -14,6 +15,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private readonly logger = new Logger(SqsProducerService.name);
   private readonly messageNum: number;
   private readonly tokenType: string;
+  private isCheckTokenOwnersTaskInProcess = false;
+  private checkTokenOwnersTaskSkippingCounter = 0;
 
   constructor(
     private configService: ConfigService,
@@ -43,30 +46,62 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron(CronExpression.EVERY_5_SECONDS)
   public async checkTokenOwnersTask() {
-    const unprocessedTasks =
-      await this.nftTokenOwnersTaskService.findUnprocessed(this.messageNum, this.tokenType);
+    if (!this.isCheckTokenOwnersTaskInProcess) {
+      this.isCheckTokenOwnersTaskInProcess = true;
 
-    if (!unprocessedTasks || unprocessedTasks.length === 0) {
-      return;
-    }
+      try {
+        const unprocessedTasks =
+          await this.nftTokenOwnersTaskService.findUnprocessed(
+            this.messageNum,
+            this.tokenType,
+          );
 
-    this.logger.log(
-      `[CRON Owners Task] Find ${unprocessedTasks.length} unfinished Owners Task. Start processing...`,
-    );
-    const messages = this.composeMessages(unprocessedTasks);
+        if (!unprocessedTasks || unprocessedTasks.length === 0) {
+          return;
+        }
 
-    const queueResults = await this.sendMessage(messages);
+        this.logger.log(
+          `[CRON Owners Task] Found ${unprocessedTasks.length} unfinished Owners Tasks. Start processing...`,
+        );
+        const messages = this.composeMessages(unprocessedTasks);
 
-    this.logger.log(
-      `[CRON Owners Task] Successfully sent ${queueResults.length} messages for collection`,
-    );
+        const queueResults = await this.sendMessage(messages);
 
-    for (const task of unprocessedTasks) {
-      await this.nftTokenOwnersTaskService.setTaskInProcessing(
-        task.contractAddress,
-        task.tokenId,
-        task.taskId,
-      );
+        this.logger.log(
+          `[CRON Owners Task] Successfully sent ${queueResults.length} messages for collection`,
+        );
+
+        for (const task of unprocessedTasks) {
+          await this.nftTokenOwnersTaskService.setTaskInProcessing(
+            task.contractAddress,
+            task.tokenId,
+            task.taskId,
+          );
+        }
+      } catch (e) {
+        this.logger.error(
+          `[CRON Owners Task] Unexpected error during processing: ${e}`,
+        );
+      }
+
+      this.isCheckTokenOwnersTaskInProcess = false;
+      this.checkTokenOwnersTaskSkippingCounter = 0;
+    } else {
+      if (
+        this.checkTokenOwnersTaskSkippingCounter <
+        Number(this.configService.get('skippingCounterLimit'))
+      ) {
+        this.checkTokenOwnersTaskSkippingCounter++;
+        this.logger.log(
+          `[CRON Owners Task] Task is in process, skipping (${this.checkTokenOwnersTaskSkippingCounter}) ...`,
+        );
+      } else {
+        // when the counter reaches the limit, restart the pod.
+        this.logger.log(
+          `[CRON Owners Task] Task skipping counter reached its limit. The process is not responsive, restarting...`,
+        );
+        Utils.shutdown();
+      }
     }
   }
 
