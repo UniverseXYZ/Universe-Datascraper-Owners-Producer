@@ -15,8 +15,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private readonly logger = new Logger(SqsProducerService.name);
   private readonly messageNum: number;
   private readonly tokenType: string;
-  private isCheckTokenOwnersTaskInProcess = false;
-  private checkTokenOwnersTaskSkippingCounter = 0;
+  private isProcessing = false;
+  private skippingCounter = 0;
 
   constructor(
     private configService: ConfigService,
@@ -46,54 +46,14 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron(CronExpression.EVERY_5_SECONDS)
   public async checkTokenOwnersTask() {
-    if (!this.isCheckTokenOwnersTaskInProcess) {
-      this.isCheckTokenOwnersTaskInProcess = true;
-
-      try {
-        const unprocessedTasks =
-          await this.nftTokenOwnersTaskService.findUnprocessed(
-            this.messageNum,
-            this.tokenType,
-          );
-
-        if (!unprocessedTasks || unprocessedTasks.length === 0) {
-          return;
-        }
-
-        this.logger.log(
-          `[CRON Owners Task] Found ${unprocessedTasks.length} unfinished Owners Tasks. Start processing...`,
-        );
-        const messages = this.composeMessages(unprocessedTasks);
-
-        const queueResults = await this.sendMessage(messages);
-
-        this.logger.log(
-          `[CRON Owners Task] Successfully sent ${queueResults.length} messages for collection`,
-        );
-
-        for (const task of unprocessedTasks) {
-          await this.nftTokenOwnersTaskService.setTaskInProcessing(
-            task.contractAddress,
-            task.tokenId,
-            task.taskId,
-          );
-        }
-      } catch (e) {
-        this.logger.error(
-          `[CRON Owners Task] Unexpected error during processing: ${e}`,
-        );
-      }
-
-      this.isCheckTokenOwnersTaskInProcess = false;
-      this.checkTokenOwnersTaskSkippingCounter = 0;
-    } else {
+    if (this.isProcessing) {
       if (
-        this.checkTokenOwnersTaskSkippingCounter <
+        this.skippingCounter <
         Number(this.configService.get('skippingCounterLimit'))
       ) {
-        this.checkTokenOwnersTaskSkippingCounter++;
+        this.skippingCounter++;
         this.logger.log(
-          `[CRON Owners Task] Task is in process, skipping (${this.checkTokenOwnersTaskSkippingCounter}) ...`,
+          `[CRON Owners Task] Task is in process, skipping (${this.skippingCounter}) ...`,
         );
       } else {
         // when the counter reaches the limit, restart the pod.
@@ -102,7 +62,50 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
         );
         Utils.shutdown();
       }
+
+      return;
     }
+
+    this.isProcessing = true;
+
+    try {
+      const unprocessedTasks =
+        await this.nftTokenOwnersTaskService.findUnprocessed(
+          this.messageNum,
+          this.tokenType,
+        );
+
+      if (!unprocessedTasks || unprocessedTasks.length === 0) {
+        this.isProcessing = false;
+        return;
+      }
+
+      this.logger.log(
+        `[CRON Owners Task] Found ${unprocessedTasks.length} unfinished Owners Tasks. Start processing...`,
+      );
+      const messages = this.composeMessages(unprocessedTasks);
+
+      const queueResults = await this.sendMessage(messages);
+
+      this.logger.log(
+        `[CRON Owners Task] Successfully sent ${queueResults.length} messages for collection`,
+      );
+
+      for (const task of unprocessedTasks) {
+        await this.nftTokenOwnersTaskService.setTaskInProcessing(
+          task.contractAddress,
+          task.tokenId,
+          task.taskId,
+        );
+      }
+    } catch (e) {
+      this.logger.error(
+        `[CRON Owners Task] Unexpected error during processing: ${e}`,
+      );
+    }
+
+    this.isProcessing = false;
+    this.skippingCounter = 0;
   }
 
   private composeMessages(unprocessed: any[]) {
