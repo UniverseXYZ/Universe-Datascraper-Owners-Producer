@@ -77,6 +77,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
 
       if (!unprocessedTasks || unprocessedTasks.length === 0) {
         this.isProcessing = false;
+        this.skippingCounter = 0;
         return;
       }
 
@@ -107,6 +108,27 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.isProcessing = false;
     this.skippingCounter = 0;
   }
+
+  /**
+   * [Only for VIP] Reset isProcessing to false for expired collections
+   * #1. find all expired sendings
+   * TODO: consider to remove the isProcessing flag
+  */
+  // @Cron(new Date(Date.now() + 10 * 1000))
+  // public async resetIsprocessing() {
+  //   const expiredAddresses = await this.nftCollectionService.findExpiredOnes(
+  //     this.source,
+  //   );
+  //   if (!expiredAddresses || expiredAddresses.length === 0) {
+  //     return;
+  //   }
+
+  //   this.logger.log(
+  //     `[CRON Rest] Reset isProcessing for ${expiredAddresses.length} collections`,
+  //   );
+  //   await this.nftCollectionService.resetExpiredOnes(expiredAddresses);
+  // }
+   
 
   private composeMessages(unprocessed: any[]) {
     return unprocessed.map((x) => {
