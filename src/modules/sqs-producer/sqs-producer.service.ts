@@ -7,7 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EthereumService } from '../ethereum/ethereum.service';
 import { NFTTokenOwnersTaskService } from '../nft-token-owners-task/nft-token-owners-task.service';
-import { Utils } from '../../common/utils';
+import { Utils } from '../../utils';
 
 @Injectable()
 export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
